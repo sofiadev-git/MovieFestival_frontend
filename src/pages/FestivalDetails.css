@@ -417,6 +417,20 @@
 
 
 /* =========================
+   STATO PROIEZIONI
+   ========================= */
+
+.orario-cancellato {
+    text-decoration: line-through;
+    text-decoration-thickness: 2px;
+}
+
+.orario-completato {
+    opacity: 0.45;
+}
+
+
+/* =========================
    RESPONSIVE
    ========================= */
 

@@ -363,7 +363,13 @@ function FestivalDetails() {
                                                                 proiezione => (
 
                                                                     <span
-                                                                        className="orario"
+                                                                        className={
+                                                                            proiezione.stato === "CANCELLED"
+                                                                                ? "orario orario-cancellato"
+                                                                                : proiezione.stato === "COMPLETED"
+                                                                                    ? "orario orario-completato"
+                                                                                    : "orario"
+                                                                        }
                                                                         key={
                                                                             proiezione.id
                                                                         }
