@@ -1,414 +1,218 @@
-import { useEffect, useState } from "react"
-import { useParams } from "react-router-dom"
-import type { FestivalDetailsDto } from "../types"
-import { getFestival } from "../services/festivalService"
+import {useEffect, useMemo, useState} from "react"
+import {useParams} from "react-router-dom"
+import type {FestivalDetailsDto, BasicFilmInfoDto, ProiezioniFilmDto} from "../types"
+import {getFestival} from "../services/festivalService"
 import "./FestivalDetails.css"
 
+const SPRING_ORIGIN = "http://localhost:8080"
+type Tab = "programmazione" | "film"
 
-function generaGiorni(dataInizio: string, dataFine: string): string[] {
-
-    const giorni: string[] = []
-
-    const dataCorrente =
-        new Date(`${dataInizio}T00:00:00Z`)
-
-    const ultimaData =
-        new Date(`${dataFine}T00:00:00Z`)
-
-    while (dataCorrente <= ultimaData) {
-
-        giorni.push(
-            dataCorrente.toISOString().substring(0, 10)
-        )
-
-        dataCorrente.setUTCDate(
-            dataCorrente.getUTCDate() + 1
-        )
+function dateList(from: string, to: string): string[] {
+    const start = new Date(`${from}T00:00:00Z`)
+    const end = new Date(`${to}T00:00:00Z`)
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return []
+    const dates: string[] = []
+    while (start <= end && dates.length < 370) {
+        dates.push(start.toISOString().slice(0, 10))
+        start.setUTCDate(start.getUTCDate() + 1)
     }
-
-    return giorni
+    return dates
 }
 
-
-function formattaGiorno(data: string): string {
-
-    return new Intl.DateTimeFormat(
-        "it-IT",
-        {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-            timeZone: "UTC"
-        }
-    ).format(
-        new Date(`${data}T00:00:00Z`)
-    )
+function printDate(value: string, option: "short" | "long" = "long"): string {
+    return new Intl.DateTimeFormat("it-IT", option === "short"
+        ? {weekday: "short", day: "numeric", month: "short", timeZone: "UTC"}
+        : {day: "numeric", month: "long", year: "numeric", timeZone: "UTC"}
+    ).format(new Date(`${value}T00:00:00Z`))
 }
 
-
-function formattaData(data: string): string {
-
-    return new Intl.DateTimeFormat(
-        "it-IT",
-        {
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-            timeZone: "UTC"
-        }
-    ).format(
-        new Date(`${data}T00:00:00Z`)
-    )
+function posterUrl(locandina: string | null | undefined): string | null {
+    if (!locandina) return null
+    if (locandina.startsWith("http://") || locandina.startsWith("https://")) return locandina
+    return `${SPRING_ORIGIN}${locandina.startsWith("/") ? "" : "/"}${locandina}`
 }
 
-
-function formattaOra(ora: string): string {
-    return ora.substring(0, 5)
+function Poster({film}: { film: BasicFilmInfoDto }) {
+    const [failed, setFailed] = useState(false)
+    const poster = posterUrl(film.locandina)
+    return <div className="mv-poster">{poster && !failed
+        ? <img src={poster} alt={`Locandina di ${film.titolo}`} onError={() => setFailed(true)}/>
+        : <span className="mv-poster-placeholder">{film.titolo}</span>}</div>
 }
 
+function FilmCard({film}: { film: BasicFilmInfoDto }) {
+    return <article className="mv-film-card">
+        <a href={`${SPRING_ORIGIN}/films/${film.id}`}><Poster film={film}/></a>
+        <div className="mv-film-meta">
+            <h3><a href={`${SPRING_ORIGIN}/films/${film.id}`}>{film.titolo}</a></h3>
+            <p>{film.genere || "Film"} · {film.proiezioni.length} {film.proiezioni.length === 1 ? "proiezione" : "proiezioni"}</p>
+        </div>
+    </article>
+}
 
 function FestivalDetails() {
-
-    const { id } = useParams()
-
-    const [festival, setFestival] =
-        useState<FestivalDetailsDto | null>(null)
-
-    const [giornoSelezionato, setGiornoSelezionato] =
-        useState<string | null>(null)
-
+    const {id} = useParams()
+    const [festival, setFestival] = useState<FestivalDetailsDto | null>(null)
+    const [error, setError] = useState("")
+    const [tab, setTab] = useState<Tab>("programmazione")
+    const [day, setDay] = useState<string | null>(null)
+    const [search, setSearch] = useState("")
 
     useEffect(() => {
+        let active = true
+        setFestival(null)
+        setError("")
+        setDay(null)
 
-        async function caricaFestival() {
-
-            if (!id) {
-                return
-            }
-
-            const dati =
-                await getFestival(Number(id))
-
-            setFestival(dati)
+        if (!id || Number.isNaN(Number(id))) {
+            setError("Festival non valido.")
+            return
         }
 
-        caricaFestival()
+        getFestival(Number(id)).then(data => {
+            if (active) {
+                setFestival(data)
+                document.title = `${data.nome} · Moviola`
+            }
+        }).catch(() => {
+            if (active) setError("Impossibile caricare il festival. Verifica che Spring Boot sia avviato.")
+        })
 
+        return () => {
+            active = false
+        }
     }, [id])
 
-
-    if (festival === null) {
-        return <p>Caricamento...</p>
-    }
-
-
-    const giorni =
-        generaGiorni(
-            festival.dataInizio,
-            festival.dataFine
-        )
-
-
-    const giornoCorrente =
-        giornoSelezionato ?? giorni[0]
-
-
-    const durata =
-        giorni.length
-
-
-    const filmDelGiorno =
-        festival.film.filter(film =>
-            film.proiezioni.some(
-                proiezione =>
-                    proiezione.data === giornoCorrente
-            )
-        )
-
-
-    return (
-
-        <main className="festival-page">
-
-            <section className="festival-header">
-
-                <a
-                    className="torna-festival"
-                    href="http://localhost:8080/festivals"
-                >
-                    ← Torna ai festival
-                </a>
-
-
-                <h1>
-                    {festival.nome}
-                </h1>
-
-
-                <p className="festival-description">
-                    {festival.descrizione}
-                </p>
-
-
-                <div className="festival-info">
-
-                    <div className="festival-info-item">
-                        <span className="info-label">
-                            Città
-                        </span>
-
-                        <span>
-                            {festival.citta}
-                        </span>
-                    </div>
-
-
-                    <div className="festival-info-item">
-                        <span className="info-label">
-                            Date
-                        </span>
-
-                        <span>
-                            Dal {formattaData(festival.dataInizio)}
-                            {" "}al{" "}
-                            {formattaData(festival.dataFine)}
-                        </span>
-                    </div>
-
-
-                    <div className="festival-info-item">
-                        <span className="info-label">
-                            Durata
-                        </span>
-
-                        <span>
-                            {durata} giorni
-                        </span>
-                    </div>
-
-                </div>
-
-            </section>
-
-
-            <section className="programmazione">
-
-                <div className="programmazione-header">
-
-                    <h2>
-                        Programmazione
-                    </h2>
-
-
-                    <div className="giorni">
-
-                        {giorni.map(giorno => (
-
-                            <button
-                                key={giorno}
-                                className={
-                                    giorno === giornoCorrente
-                                        ? "giorno attivo"
-                                        : "giorno"
-                                }
-                                onClick={() =>
-                                    setGiornoSelezionato(giorno)
-                                }
-                            >
-                                {formattaGiorno(giorno)}
-                            </button>
-
-                        ))}
-
-                    </div>
-
-                </div>
-
-
-                <p className="giorno-selezionato">
-                    Programmazione di{" "}
-                    <strong>
-                        {formattaData(giornoCorrente)}
-                    </strong>
-                </p>
-
-
-                {filmDelGiorno.length === 0 ? (
-
-                    <div className="nessuna-proiezione">
-                        Nessuna proiezione prevista
-                        per questa giornata.
-                    </div>
-
-                ) : (
-
-                    filmDelGiorno.map(film => {
-
-                        const proiezioniDelGiorno =
-                            film.proiezioni.filter(
-                                proiezione =>
-                                    proiezione.data === giornoCorrente
-                            )
-
-
-                        const proiezioniPerSala =
-                            proiezioniDelGiorno.reduce<
-                                Record<
-                                    string,
-                                    typeof proiezioniDelGiorno
-                                >
-                            >(
-                                (sale, proiezione) => {
-
-                                    if (!sale[proiezione.nomeSala]) {
-                                        sale[proiezione.nomeSala] = []
-                                    }
-
-                                    sale[proiezione.nomeSala].push(
-                                        proiezione
-                                    )
-
-                                    return sale
-                                },
-                                {}
-                            )
-
-
-                        return (
-
-                            <article
-                                className="film-card"
-                                key={film.id}
-                            >
-
-                                <a
-                                    className="poster-link"
-                                    href={
-                                        `http://localhost:8080/films/${film.id}`
-                                    }
-                                >
-                                    <img
-                                        className="film-poster"
-                                        src={
-                                            `http://localhost:8080${film.locandina}`
-                                        }
-                                        alt={film.titolo}
-                                    />
-                                </a>
-
-
-                                <div className="film-content">
-
-                                    <a
-                                        className="film-title"
-                                        href={
-                                            `http://localhost:8080/films/${film.id}`
-                                        }
-                                    >
-                                        <h3>
-                                            {film.titolo}
-                                        </h3>
-                                    </a>
-
-
-                                    <p className="film-genere">
-                                        Genere: {film.genere}
-                                    </p>
-
-
-                                    <a
-                                        className="dettagli-film"
-                                        href={
-                                            `http://localhost:8080/films/${film.id}`
-                                        }
-                                    >
-                                        Vai ai dettagli
-                                    </a>
-
-
-                                    <div className="sale-container">
-
-                                        {Object.entries(
-                                            proiezioniPerSala
-                                        ).map(
-                                            ([nomeSala, proiezioni]) => (
-
-                                                <div
-                                                    className="sala-row"
-                                                    key={nomeSala}
-                                                >
-
-                                                    <div className="sala-column">
-
-                                                        <span className="sala-label">
-                                                            Sala
-                                                        </span>
-
-                                                        <span className="sala-value">
-                                                            {nomeSala}
-                                                        </span>
-
-                                                    </div>
-
-
-                                                    <div className="orari-column">
-
-                                                        <span className="sala-label">
-                                                            Orario
-                                                        </span>
-
-                                                        <div className="orari">
-
-                                                            {proiezioni.map(
-                                                                proiezione => (
-
-                                                                    <span
-                                                                        className={
-                                                                            proiezione.stato === "CANCELLED"
-                                                                                ? "orario orario-cancellato"
-                                                                                : proiezione.stato === "COMPLETED"
-                                                                                    ? "orario orario-completato"
-                                                                                    : "orario"
-                                                                        }
-                                                                        key={
-                                                                            proiezione.id
-                                                                        }
-                                                                    >
-                                                                        {
-                                                                            formattaOra(
-                                                                                proiezione.ora
-                                                                            )
-                                                                        }
-                                                                    </span>
-
-                                                                )
-                                                            )}
-
-                                                        </div>
-
-                                                    </div>
-
-                                                </div>
-
-                                            )
-                                        )}
-
+    const days = useMemo(() => festival ? dateList(festival.dataInizio, festival.dataFine) : [], [festival])
+    const currentDay = day && days.includes(day) ? day : days[0]
+
+    const screenings = useMemo(() => {
+        if (!festival) return []
+        return festival.film.flatMap(film => film.proiezioni
+            .filter(screening => screening.data === currentDay)
+            .map(screening => ({film, screening})))
+            .sort((a, b) => a.screening.ora.localeCompare(b.screening.ora))
+    }, [festival, currentDay])
+
+    const movieResults = useMemo(() => festival?.film.filter(film =>
+        `${film.titolo} ${film.genere}`.toLocaleLowerCase("it").includes(search.toLocaleLowerCase("it").trim())) ?? [], [festival, search])
+
+    return <div className="mv-layout">
+        <div className="mv-workspace">
+            <header className="mv-topbar">
+                <a className="mv-back-button" href={`${SPRING_ORIGIN}/festivals`}>← Torna ai festival</a>
+                <span>MOVIOLA &nbsp; / &nbsp; <b>Festival / Dettaglio</b></span>
+                <div><a href={`${SPRING_ORIGIN}/films`}>Esplora i film &nbsp; ↗</a></div>
+            </header>
+
+            <main className="mv-main">
+                {error ?
+                    <section className="mv-empty">
+                        <h2>{error}</h2>
+                        <a href={`${SPRING_ORIGIN}/festivals`}>Torna ai festival</a>
+                    </section>
+                    : !festival ?
+                        <div className="mv-empty">Caricamento festival…</div>
+                        : <>
+                            <section className="mv-hero">
+                                <div className="mv-hero-content">
+                                    <p className="mv-eyebrow">Festival cinematografico / {festival.anno}</p>
+                                    <h1>{festival.nome}</h1>
+                                    <p>{festival.descrizione}</p>
+                                    <div className="mv-hero-tags">
+                                        <span>⌖ &nbsp; {festival.citta}</span>
+                                        <span>▦ &nbsp; {printDate(festival.dataInizio)} — {printDate(festival.dataFine)}</span>
+                                    </div>
+                                </div>
+                                <div className="mv-hero-picture">
+                                    <img src={`${SPRING_ORIGIN}/images/moviola-editoriale/hero-theater.webp`} alt="Sala cinematografica, immagine illustrativa"/>
+                                    <span>FESTIVAL CINEMATOGRAFICO · MOVIOLA</span>
+                                </div>
+                            </section>
+
+                            <section className="mv-overview">
+                                <div>
+                                    <span className="mv-eyebrow">L'edizione</span>
+                                    <h2>Il cinema incontra<br/><em>la sua città.</em></h2>
+                                </div>
+                                <div className="mv-overview-stats">
+                                    <div><b>{festival.film.length}</b><span>Film partecipanti</span></div>
+                                    <div><b>{festival.film.reduce((a, f) => a + f.proiezioni.length, 0)}</b><span>Proiezioni</span></div>
+                                    <div><b>{days.length}</b><span>Giorni</span></div>
+                                </div>
+                            </section>
+
+                            <div className="mv-tabs" role="tablist" aria-label="Sezioni del festival">
+                                <button type="button" role="tab" aria-selected={tab === "programmazione"}
+                                        className={tab === "programmazione" ? "active" : ""}
+                                        onClick={() => setTab("programmazione")}>Programmazione</button>
+                                <button type="button" role="tab" aria-selected={tab === "film"}
+                                        className={tab === "film" ? "active" : ""}
+                                        onClick={() => setTab("film")}>Film partecipanti <span>{festival.film.length}</span></button>
+                            </div>
+
+                            {tab === "programmazione" ?
+                                <section aria-label="Programmazione">
+                                    <div className="mv-section-heading">
+                                        <div>
+                                            <p className="mv-eyebrow">Sul grande schermo</p>
+                                            <h2>Il programma.</h2>
+                                        </div>
+                                        <span>Seleziona un giorno per vedere le proiezioni</span>
                                     </div>
 
-                                </div>
+                                    <div className="mv-days">
+                                        {days.map(value => <button type="button" key={value}
+                                                                   className={value === currentDay ? "selected" : ""}
+                                                                   onClick={() => setDay(value)}>{printDate(value, "short")}</button>)}
+                                    </div>
 
-                            </article>
+                                    <h3 className="mv-day-head">
+                                        {currentDay ? printDate(currentDay) : "Calendario"}
+                                        <span>{screenings.length} {screenings.length === 1 ? "proiezione" : "proiezioni"}</span>
+                                    </h3>
 
-                        )
-                    })
-
-                )}
-
-            </section>
-
-        </main>
-    )
+                                    {screenings.length === 0 ?
+                                        <div className="mv-empty">Nessuna proiezione programmata per questo giorno.</div>
+                                        : <div className="mv-screenings">
+                                            {screenings.map(({film, screening}: {film: BasicFilmInfoDto, screening: ProiezioniFilmDto}) =>
+                                                    <article className="mv-screening" key={screening.id}>
+                                                        <time>{screening.ora.slice(0, 5)}</time>
+                                                        <a className="mv-screening-poster" href={`${SPRING_ORIGIN}/films/${film.id}`}><Poster film={film}/></a>
+                                                        <div className="mv-screening-copy">
+                                                            <span className="mv-eyebrow">{film.genere || "Film"}</span>
+                                                            <h3><a href={`${SPRING_ORIGIN}/films/${film.id}`}>{film.titolo}</a></h3>
+                                                            <p>Sala · {screening.nomeSala || "Da definire"}</p>
+                                                        </div>
+                                                        <span className={`mv-status ${screening.stato === "CANCELLED" ? "cancelled" : ""}`}>
+                                            {screening.stato === "CANCELLED" ? "Annullata" : screening.stato === "COMPLETED" ? "Completata" : "Programmata"}
+                                        </span>
+                                                        <a href={`${SPRING_ORIGIN}/films/${film.id}`} className="mv-screening-link" aria-label={`Dettagli di ${film.titolo}`}>↗</a>
+                                                    </article>
+                                            )}
+                                        </div>}
+                                </section>
+                                : <section aria-label="Film partecipanti">
+                                    <div className="mv-section-heading">
+                                        <div>
+                                            <p className="mv-eyebrow">La selezione ufficiale</p>
+                                            <h2>Tutti i film.</h2>
+                                        </div>
+                                        <input aria-label="Cerca nei film del festival" className="mv-search"
+                                               value={search} onChange={event => setSearch(event.target.value)}
+                                               placeholder="Cerca un film…"/>
+                                    </div>
+                                    <p className="mv-note">Sono mostrati anche i film associati al festival che non hanno ancora proiezioni.</p>
+                                    <div className="mv-film-grid">
+                                        {movieResults.map(film => <FilmCard key={film.id} film={film}/>)}
+                                    </div>
+                                    {movieResults.length === 0 && <div className="mv-empty">Nessun film trovato.</div>}
+                                </section>}
+                        </>}
+                <footer className="mv-footer">© Moviola · Ogni storia merita di essere vista.</footer>
+            </main>
+        </div>
+    </div>
 }
-
 
 export default FestivalDetails
